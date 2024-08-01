@@ -52,13 +52,56 @@
 
 extern int64_t event_trigger;
 
-void fconv3d_CHx7x7(double *o, double *i, double *f, int64_t M, int64_t N,
+// Marius: Changes for 32bit
+
+// Change data types:
+// Replace double with float for all input, output, and filter arrays.
+
+
+// Update vector configuration:
+// Change e64 to e32 in all vsetvli instructions.
+
+// Adjust the LMUL (m2 in the current code) depending on your vector register width and desired vector length.
+// LMUL (Load/Store Multiple) is a parameter in RISC-V vector extensions that determines how many vector registers are grouped together
+// to form a larger logical vector register.
+// It's used to balance between vector length and the number of available vector registers.
+// m1: Use 1 vector register (default)
+// m2: Group 2 vector registers together
+// m4: Group 4 vector registers together
+// m8: Group 8 vector registers together
+// -> Changed to m4 from m2
+// Actually this is WRONG, reverse to m2
+
+// Update load/store instructions:
+// Replace vle64.v with vle32.v
+// Replace vse64.v with vse32.v
+
+// Adjust pointer arithmetic:
+// Halve the stride values for pointer increments (e.g., ldo, ldi_pad)
+// ldo (likely stands for "load output"): This is the stride value used to move to the next row in the output matrix.
+// ldi_pad (likely stands for "load input padded"): This is the stride value used to move to the next row in the padded input matrix.
+
+
+// Update function signatures:
+// Change double * to float * for input, output, and filter parameters
+// Also in header file
+
+// TODO: 
+// vfmacc.vf (vector fused multiply-accumulate 64-bit) becomes vfmacc.vf for 32-bit or 16-bit as well,
+// but ensure the correct suffix for the data size is used.
+
+// TODO: 
+// vfslide1down.vf (vector slide down 64-bit) becomes vfslide1down.vf for 32-bit or 16-bit data sizes.
+
+
+
+void fconv3d_CHx7x7(float *o, float *i, float *f, int64_t M, int64_t N,
                     int64_t C, int64_t F) {
 
   unsigned long int block_size_n;
 
   // Set the vector configuration
-  asm volatile("vsetvli %0, %1, e64, m2, ta, ma" : "=r"(block_size_n) : "r"(N));
+  asm volatile("vsetvli %0, %1, e32, m2, ta, ma" : "=r"(block_size_n) : "r"(N));
 
   // Slice the matrix into a manageable number of columns n_
   for (unsigned long int n = 0; n < N; n += block_size_n) {
@@ -66,22 +109,22 @@ void fconv3d_CHx7x7(double *o, double *i, double *f, int64_t M, int64_t N,
     const unsigned long int n_ = MIN(N - n, block_size_n);
 
     // Find pointers to the submatrices
-    const double *i_ = i + n;
-    double *o_ = o + n;
+    const float *i_ = i + n;
+    float *o_ = o + n;
 
-    asm volatile("vsetvli zero, %0, e64, m2, ta, ma" ::"r"(n_));
+    asm volatile("vsetvli zero, %0, e32, m2, ta, ma" ::"r"(n_));
 
     fconv3d_CHx7x7_block(o_, i_, f, M, N, n_, C, F);
   }
 }
 
-void fconv3d_CHx7x7_warm(double *o, double *i, double *f, int64_t M, int64_t N,
+void fconv3d_CHx7x7_warm(float *o, float *i, float *f, int64_t M, int64_t N,
                     int64_t C, int64_t F) {
 
   unsigned long int block_size_n;
 
   // Set the vector configuration
-  asm volatile("vsetvli %0, %1, e64, m2, ta, ma" : "=r"(block_size_n) : "r"(N));
+  asm volatile("vsetvli %0, %1, e32, m2, ta, ma" : "=r"(block_size_n) : "r"(N));
 
   // Slice the matrix into a manageable number of columns n_
   for (unsigned long int n = 0; n < N; n += block_size_n) {
@@ -89,38 +132,45 @@ void fconv3d_CHx7x7_warm(double *o, double *i, double *f, int64_t M, int64_t N,
     const unsigned long int n_ = MIN(N - n, block_size_n);
 
     // Find pointers to the submatrices
-    const double *i_ = i + n;
-    double *o_ = o + n;
+    const float *i_ = i + n;
+    float *o_ = o + n;
 
-    asm volatile("vsetvli zero, %0, e64, m2, ta, ma" ::"r"(n_));
+    asm volatile("vsetvli zero, %0, e32, m2, ta, ma" ::"r"(n_));
 
     fconv3d_warm(o_, i_, f, M, N, n_, C, F);
   }
 }
 
-void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
+void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F) {
 
   // Helper variables
-  int64_t ldo = N << 3;
-  int64_t ldi_pad = (N + F - 1) << 3;
+  // Marius: change here
+  // int64_t ldo = N << 3;
+  // int64_t ldi_pad = (N + F - 1) << 3;
+
+  // Alternative:
+  // int64_t ldo = N * sizeof(float);
+  // int64_t ldi_pad = (N + F - 1) * sizeof(float);
+  int64_t ldo = N << 2;
+  int64_t ldi_pad = (N + F - 1) << 2;
 
   // Number of elements that separates two adjacent channels
   int64_t ich_len = (M + F - 1) * (N + F - 1);
   int64_t fch_len = F * F;
 
-  double *i_ = i;
-  double *i__ = i;
+  float *i_ = i;
+  float *i__ = i;
 
   // Very last column of coefficients
-  double fl0, fl1, fl2, fl3, fl4, fl5, fl6;
+  float fl0, fl1, fl2, fl3, fl4, fl5, fl6;
   // Buffers for coefficients preloading (solve 16-lane starvation problem)
-  double f0_buf, f1_buf, f2_buf, f3_buf, f4_buf, f5_buf, f6_buf;
+  float f0_buf, f1_buf, f2_buf, f3_buf, f4_buf, f5_buf, f6_buf;
 
-  double *i_slide_ptr_0;
-  double *i_slide_ptr_1;
-  double *i_slide_ptr_2;
-  double *i_slide_ptr_3;
+  float *i_slide_ptr_0;
+  float *i_slide_ptr_1;
+  float *i_slide_ptr_2;
+  float *i_slide_ptr_3;
 
   // Buffer some of the filter coefficients not to lose efficiency after a
   // vector store (CVA6 cannot issue memory operations if there is a pending
@@ -152,18 +202,19 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     i_slide_ptr_3 = i__ + n_ + 3 * (N + F - 1);
 
     // Load four input rows belonging to channel ch
-    asm volatile("vle64.v v0, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v0, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v4, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v4, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v8, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v8, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v12, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v12, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
+  // Marius debug notes: executed until here bofreo tohost = 1337
 
     // Main kernel, unrolled by 2
     // Unrolled because of double buffering
@@ -177,12 +228,20 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
       // channel (ch) of the filter (f)
       int64_t base_idx_1 = (2 * k + 1) + (ch * fch_len);
 
+      // Marius debug notes: works
       if ((k | ch) == 0)
         asm volatile("vfmul.vf v16, v0, %0" ::"f"(f[0 + base_idx_0]));
       else
         asm volatile("vfmacc.vf v16, %0, v0" ::"f"(f[0 + base_idx_0]));
+      // Marius debug notes: This two here do not work any more
+      // core   0: 0x0000000080000ba8 (0x9243d957) vfmul.vf v18, v4, ft7
+      // core   0: exception trap_illegal_instruction, epc 0x0000000080000ba8
+      // core   0:           tval 0x000000009243d957
       if ((k | ch) == 0)
         asm volatile("vfmul.vf v18, v4, %0" ::"f"(f[0 + base_idx_0]));
+        // OG:
+        // asm volatile("vfmul.vf v18, v4, %0" ::"f"(f[0 + base_idx_0]));
+        // Marius debug notes: THIS INSTRUCTION FAILS, changing to v16 makes it run!!
       else
         asm volatile("vfmacc.vf v18, %0, v4" ::"f"(f[0 + base_idx_0]));
       asm volatile("vfslide1down.vf v2, v0, %0" ::"f"(*i_slide_ptr_0++));
@@ -219,7 +278,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
       asm volatile("vfslide1down.vf v12, v14, %0" ::"f"(*i_slide_ptr_3++));
       asm volatile("vfmacc.vf v20, %0, v14" ::"f"(f[7 + base_idx_1]));
     }
-
+    // Marius debug note: threw tohost = 1337 before here
     int64_t base_idx_0 = (F - 1) + (ch * fch_len);
 
     // Don't slide during the last iteration
@@ -253,13 +312,13 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     i_slide_ptr_1 = i__ + n_ + 1 * (N + F - 1);
     i_slide_ptr_2 = i__ + n_ + 2 * (N + F - 1);
 
-    asm volatile("vle64.v v2, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v2, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v6, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v6, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v10, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v10, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
 
@@ -383,7 +442,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
   asm volatile("vfmacc.vf v16, %0, v6" ::"f"(fl5));
   f5_buf = f[35];
   asm volatile("vfmacc.vf v16, %0, v10" ::"f"(fl6));
-  asm volatile("vse64.v v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
 
   asm volatile("vfmacc.vf v18, %0, v2" ::"f"(fl3));
   asm volatile("vfmacc.vf v18, %0, v6" ::"f"(fl4));
@@ -447,7 +506,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
       // Start calculating the next pointers to the elements to be slided in
       i_slide_ptr_0 = i__ + n_;
 
-      asm volatile("vle64.v v0, (%0); add %0, %0, %1"
+      asm volatile("vle32.v v0, (%0); add %0, %0, %1"
                    : "+&r"(i__)
                    : "r"(ldi_pad));
 
@@ -534,7 +593,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     f6_buf = f[42];
     asm volatile("vfmacc.vf v16, %0, v0" ::"f"(fl6));
     f5_buf = f[35];
-    asm volatile("vse64.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+    asm volatile("vse32.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
     asm volatile("vfmacc.vf v18, %0, v0" ::"f"(fl5));
     asm volatile("vmv.v.v v16, v18");
     asm volatile("vfmacc.vf v20, %0, v0" ::"f"(fl4));
@@ -574,7 +633,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
       // Start calculating the next pointers to the elements to be slided in
       i_slide_ptr_1 = i__ + n_;
 
-      asm volatile("vle64.v v2, (%0); add %0, %0, %1"
+      asm volatile("vle32.v v2, (%0); add %0, %0, %1"
                    : "+&r"(i__)
                    : "r"(ldi_pad));
 
@@ -648,7 +707,7 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     f6_buf = f[42];
     asm volatile("vfmacc.vf v16, %0, v2" ::"f"(fl6));
     f5_buf = f[35];
-    asm volatile("vse64.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+    asm volatile("vse32.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
     asm volatile("vfmacc.vf v18, %0, v2" ::"f"(fl5));
     asm volatile("vmv.v.v v16, v18");
     asm volatile("vfmacc.vf v20, %0, v2" ::"f"(fl4));
@@ -688,16 +747,16 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     i_slide_ptr_3 = i__ + n_ + 3 * (N + F - 1);
 
     // Load other three input rows (one was already loaded)
-    asm volatile("vle64.v v0, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v0, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v4, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v4, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v8, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v8, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v12, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v12, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
 
@@ -801,26 +860,26 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
   asm volatile("vfmacc.vf v16, %0, v0" ::"f"(fl6));
   asm volatile("vfmacc.vf v18, %0, v0" ::"f"(fl5));
   asm volatile("vfmacc.vf v20, %0, v0" ::"f"(fl4));
-  asm volatile("vse64.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v16, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v22, %0, v0" ::"f"(fl3));
   asm volatile("vfmacc.vf v24, %0, v0" ::"f"(fl2));
   asm volatile("vfmacc.vf v26, %0, v0" ::"f"(fl1));
   asm volatile("vfmacc.vf v28, %0, v0" ::"f"(fl0));
   asm volatile("vfmacc.vf v18, %0, v4" ::"f"(fl6));
   asm volatile("vfmacc.vf v20, %0, v4" ::"f"(fl5));
-  asm volatile("vse64.v  v18, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v18, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v22, %0, v4" ::"f"(fl4));
   asm volatile("vfmacc.vf v24, %0, v4" ::"f"(fl3));
   asm volatile("vfmacc.vf v26, %0, v4" ::"f"(fl2));
   asm volatile("vfmacc.vf v28, %0, v4" ::"f"(fl1));
   asm volatile("vfmacc.vf v20, %0, v8" ::"f"(fl6));
   asm volatile("vfmacc.vf v22, %0, v8" ::"f"(fl5));
-  asm volatile("vse64.v  v20, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v20, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v24, %0, v8" ::"f"(fl4));
   asm volatile("vfmacc.vf v26, %0, v8" ::"f"(fl3));
   asm volatile("vfmacc.vf v28, %0, v8" ::"f"(fl2));
   asm volatile("vfmacc.vf v22, %0, v12" ::"f"(fl6));
-  asm volatile("vse64.v  v22, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v22, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v24, %0, v12" ::"f"(fl5));
   asm volatile("vfmacc.vf v26, %0, v12" ::"f"(fl4));
   asm volatile("vfmacc.vf v28, %0, v12" ::"f"(fl3));
@@ -842,13 +901,13 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
     i_slide_ptr_1 = i__ + n_ + 1 * (N + F - 1);
     i_slide_ptr_2 = i__ + n_ + 2 * (N + F - 1);
 
-    asm volatile("vle64.v v2, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v2, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v6, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v6, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-    asm volatile("vle64.v v10, (%0); add %0, %0, %1"
+    asm volatile("vle32.v v10, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
 
@@ -896,40 +955,42 @@ void fconv3d_CHx7x7_block(double *o, double *i, double *f, int64_t M, int64_t N,
   }
 
   asm volatile("vfmacc.vf v24, %0, v2" ::"f"(fl6));
-  asm volatile("vse64.v  v24, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v24, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v26, %0, v2" ::"f"(fl5));
   asm volatile("vfmacc.vf v28, %0, v2" ::"f"(fl4));
   asm volatile("vfmacc.vf v26, %0, v6" ::"f"(fl6));
-  asm volatile("vse64.v  v26, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v26, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
   asm volatile("vfmacc.vf v28, %0, v6" ::"f"(fl5));
   asm volatile("vfmacc.vf v28, %0, v10" ::"f"(fl6));
-  asm volatile("vse64.v  v28, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
+  asm volatile("vse32.v  v28, (%0); add %0, %0, %1" : "+&r"(o) : "r"(ldo));
 }
 
 
-void fconv3d_warm(double *o, double *i, double *f, int64_t M, int64_t N,
+void fconv3d_warm(float *o, float *i, float *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F) {
 
   // Helper variables
-  int64_t ldo = N << 3;
-  int64_t ldi_pad = (N + F - 1) << 3;
-
+  // Marius: changed here
+  // int64_t ldo = N << 3;
+  // int64_t ldi_pad = (N + F - 1) << 3;
+  int64_t ldo = N << 2;
+  int64_t ldi_pad = (N + F - 1) << 2;
   // Number of elements that separates two adjacent channels
   int64_t ich_len = (M + F - 1) * (N + F - 1);
   int64_t fch_len = F * F;
 
-  double *i_ = i;
-  double *i__ = i;
+  float *i_ = i;
+  float *i__ = i;
 
   // Very last column of coefficients
-  double fl0, fl1, fl2, fl3, fl4, fl5, fl6;
+  float fl0, fl1, fl2, fl3, fl4, fl5, fl6;
   // Buffers for coefficients preloading (solve 16-lane starvation problem)
-  double f0_buf, f1_buf, f2_buf, f3_buf, f4_buf, f5_buf, f6_buf;
+  float f0_buf, f1_buf, f2_buf, f3_buf, f4_buf, f5_buf, f6_buf;
 
-  double *i_slide_ptr_0;
-  double *i_slide_ptr_1;
-  double *i_slide_ptr_2;
-  double *i_slide_ptr_3;
+  float *i_slide_ptr_0;
+  float *i_slide_ptr_1;
+  float *i_slide_ptr_2;
+  float *i_slide_ptr_3;
 
   ////////////////
   // Row 0 -> 3 //

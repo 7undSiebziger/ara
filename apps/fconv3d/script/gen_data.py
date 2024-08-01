@@ -55,7 +55,21 @@ def convolve2D(kernel, image, padding):
 
     return output
 
-def emit(name, array, alignment='8'):
+# OG version:
+# def emit(name, array, alignment='8'):
+# 	print(".global %s" % name)
+# 	print(".balign " + alignment)
+# 	print("%s:" % name)
+# 	bs = array.tobytes()
+# 	for i in range(0, len(bs), 4):
+# 		s = ""
+# 		for n in range(4):
+# 			s += "%02x" % bs[i+3-n]
+# 		print("    .word 0x%s" % s)
+
+
+# Marius version 32bit:
+def emit(name, array, alignment='4'):
 	print(".global %s" % name)
 	print(".balign " + alignment)
 	print("%s:" % name)
@@ -65,6 +79,7 @@ def emit(name, array, alignment='8'):
 		for n in range(4):
 			s += "%02x" % bs[i+3-n]
 		print("    .word 0x%s" % s)
+
 
 # Define the filter size and the matrix dimension (max, for now, is 128 64-bit elements)
 if len(sys.argv) > 1:
@@ -79,7 +94,10 @@ else:
 	F = 3
 
 # 64-bit data
-dtype = np.float64
+#dtype = np.float64
+# Marius: changed
+dtype = np.float32
+
 
 # Input image. Take a square image
 M = matrix_width
@@ -96,11 +114,14 @@ image = list()
 # Generate a random float64 input padded image
 for ch in range(CH):
         image += [np.random.rand(M_pad, N_pad).astype(dtype)]
+        # image += [np.ones((M_pad, N_pad), dtype=dtype)] # Marius: change to have non random data
 
 gen_filter = list()
 # Generate a random float64 filter
 for ch in range(CH):
         gen_filter += [np.random.rand(F, F).astype(dtype)]
+        # gen_filter += [np.ones((F, F), dtype=dtype)] # Marius: change to have non random data
+
 
 # Create the empty o matrix
 empty_o = np.zeros((M, N)).astype(dtype)
