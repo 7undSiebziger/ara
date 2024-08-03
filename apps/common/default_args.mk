@@ -1,12 +1,15 @@
 # Default app parameters
 
 # Matrix sizes
-def_args_imatmul     ?= "128 128 128"
+def_args_imatmul     ?= "4 4 4"
 def_args_fmatmul     ?= "128 128 128"
 # Matrix size, filter size
 def_args_iconv2d     ?= "112 7"
 def_args_fconv2d     ?= "112 7"
 def_args_fconv3d     ?= "112 7"
+#def_args_fconv3d     ?= "16 7" #Marius: use different number here
+def_args_fconv3d32     ?= "112 7" #Marius: I have an issue that fconv3d32 uses different size.
+def_args_fconv3d16     ?= "112 7" #Marius: I have an issue that fconv3d32 uses different size.
 # Vector size
 def_args_fdotproduct ?= "512"
 # Vector size
@@ -16,7 +19,7 @@ def_args_jacobi2d    ?= "130 130"
 # Vector size
 def_args_dropout     ?= "1024"
 # Vector size, data-type
-def_args_fft         ?= "64 float32"
+def_args_fft         ?= "128 float32"
 # Vector size
 def_args_dwt         ?= "512"
 # Vector size
