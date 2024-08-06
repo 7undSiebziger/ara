@@ -7,9 +7,11 @@ def_args_fmatmul     ?= "128 128 128"
 def_args_iconv2d     ?= "112 7"
 def_args_fconv2d     ?= "112 7"
 def_args_fconv3d     ?= "112 7"
-#def_args_fconv3d     ?= "16 7" #Marius: use different number here
-def_args_fconv3d32     ?= "112 7" #Marius: I have an issue that fconv3d32 uses different size.
-def_args_fconv3d16     ?= "112 7" #Marius: I have an issue that fconv3d32 uses different size.
+def_args_fconv3d32f  ?= "112 7"
+def_args_fconv3d32i  ?= "112 7"
+def_args_fconv3d16f  ?= "112 7"
+def_args_fconv3d16i  ?= "112 7"
+def_args_fconv3d8i	 ?= "112 7"
 # Vector size
 def_args_fdotproduct ?= "512"
 # Vector size
