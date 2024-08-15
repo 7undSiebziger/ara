@@ -46,54 +46,34 @@
 
   This algorithm helps in minimizing the data dependencies, as every input rows
   is used To calculate 7 different output rows.
+
+
+  Marius: Changes for lower precision
+
+  Change data types and function signatures:
+  Change double for all input, output, and filter arrays.
+  Do that throughout the program for header file, data creation, ...
+
+  Update vector configuration:
+  Change e64 in all vsetvli instructions.
+
+  Update load/store instructions:
+  Change vse64.v and store instructions.
+
+  Adjust pointer arithmetic:
+  Adjust the stride values for pointer increments (ldo, ldi_pad)
+  ldo (likely stands for "load output"): This is the stride value used to move to the next row in the output matrix.
+  ldi_pad (likely stands for "load input padded"): This is the stride value used to move to the next row in the padded input matrix.
+
+  Adjust data type in arithmetic instructions:
+  vfmacc.vf for float, vmacc.vx for int
+  Same for add and slidedown instruction
+
 */
 
 #include "fconv3d.h"
 
 extern int64_t event_trigger;
-
-// Marius: Changes for 32bit
-
-// Change data types:
-// Replace double with float for all input, output, and filter arrays.
-
-
-// Update vector configuration:
-// Change e64 to e32 in all vsetvli instructions.
-
-// Adjust the LMUL (m2 in the current code) depending on your vector register width and desired vector length.
-// LMUL (Load/Store Multiple) is a parameter in RISC-V vector extensions that determines how many vector registers are grouped together
-// to form a larger logical vector register.
-// It's used to balance between vector length and the number of available vector registers.
-// m1: Use 1 vector register (default)
-// m2: Group 2 vector registers together
-// m4: Group 4 vector registers together
-// m8: Group 8 vector registers together
-// -> Changed to m4 from m2
-// Actually this is WRONG, reverse to m2
-
-// Update load/store instructions:
-// Replace vle64.v with vle32.v
-// Replace vse64.v with vse32.v
-
-// Adjust pointer arithmetic:
-// Halve the stride values for pointer increments (e.g., ldo, ldi_pad)
-// ldo (likely stands for "load output"): This is the stride value used to move to the next row in the output matrix.
-// ldi_pad (likely stands for "load input padded"): This is the stride value used to move to the next row in the padded input matrix.
-
-
-// Update function signatures:
-// Change double * to float * for input, output, and filter parameters
-// Also in header file
-
-// TODO: 
-// vfmacc.vf (vector fused multiply-accumulate 64-bit) becomes vfmacc.vf for 32-bit or 16-bit as well,
-// but ensure the correct suffix for the data size is used.
-
-// TODO: 
-// vfslide1down.vf (vector slide down 64-bit) becomes vfslide1down.vf for 32-bit or 16-bit data sizes.
-
-
 
 void fconv3d_CHx7x7(float *o, float *i, float *f, int64_t M, int64_t N,
                     int64_t C, int64_t F) {
@@ -145,13 +125,6 @@ void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F) {
 
   // Helper variables
-  // Marius: change here
-  // int64_t ldo = N << 3;
-  // int64_t ldi_pad = (N + F - 1) << 3;
-
-  // Alternative:
-  // int64_t ldo = N * sizeof(float);
-  // int64_t ldi_pad = (N + F - 1) * sizeof(float);
   int64_t ldo = N << 2;
   int64_t ldi_pad = (N + F - 1) << 2;
 
@@ -214,7 +187,6 @@ void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
     asm volatile("vle32.v v12, (%0); add %0, %0, %1"
                  : "+&r"(i__)
                  : "r"(ldi_pad));
-  // Marius debug notes: executed until here bofreo tohost = 1337
 
     // Main kernel, unrolled by 2
     // Unrolled because of double buffering
@@ -228,20 +200,12 @@ void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
       // channel (ch) of the filter (f)
       int64_t base_idx_1 = (2 * k + 1) + (ch * fch_len);
 
-      // Marius debug notes: works
       if ((k | ch) == 0)
         asm volatile("vfmul.vf v16, v0, %0" ::"f"(f[0 + base_idx_0]));
       else
         asm volatile("vfmacc.vf v16, %0, v0" ::"f"(f[0 + base_idx_0]));
-      // Marius debug notes: This two here do not work any more
-      // core   0: 0x0000000080000ba8 (0x9243d957) vfmul.vf v18, v4, ft7
-      // core   0: exception trap_illegal_instruction, epc 0x0000000080000ba8
-      // core   0:           tval 0x000000009243d957
       if ((k | ch) == 0)
         asm volatile("vfmul.vf v18, v4, %0" ::"f"(f[0 + base_idx_0]));
-        // OG:
-        // asm volatile("vfmul.vf v18, v4, %0" ::"f"(f[0 + base_idx_0]));
-        // Marius debug notes: THIS INSTRUCTION FAILS, changing to v16 makes it run!!
       else
         asm volatile("vfmacc.vf v18, %0, v4" ::"f"(f[0 + base_idx_0]));
       asm volatile("vfslide1down.vf v2, v0, %0" ::"f"(*i_slide_ptr_0++));
@@ -278,7 +242,6 @@ void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
       asm volatile("vfslide1down.vf v12, v14, %0" ::"f"(*i_slide_ptr_3++));
       asm volatile("vfmacc.vf v20, %0, v14" ::"f"(f[7 + base_idx_1]));
     }
-    // Marius debug note: threw tohost = 1337 before here
     int64_t base_idx_0 = (F - 1) + (ch * fch_len);
 
     // Don't slide during the last iteration
@@ -970,9 +933,6 @@ void fconv3d_warm(float *o, float *i, float *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F) {
 
   // Helper variables
-  // Marius: changed here
-  // int64_t ldo = N << 3;
-  // int64_t ldi_pad = (N + F - 1) << 3;
   int64_t ldo = N << 2;
   int64_t ldi_pad = (N + F - 1) << 2;
   // Number of elements that separates two adjacent channels

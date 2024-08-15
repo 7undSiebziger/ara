@@ -28,9 +28,6 @@
 #include "printf.h"
 #endif
 
-#include <math.h>
-
-
 // Define Matrix dimensions:
 // o = i ° f, with i=[(M+F-1)x(N+f-1)xCH], f=[FxFxCH], o=[MxN]
 // The filter is a square matrix, and F is odd
@@ -48,11 +45,11 @@ extern int64_t CH;
 extern int64_t F;
 
 // Verify the matrices
-int verify_matrix(int8_t *matrix, int8_t *golden_matrix, int64_t R, int64_t C, double threshold) {
+int verify_matrix(int64_t *matrix, int64_t *golden_matrix, int64_t R, int64_t C, double threshold) {
     for (int r = 0; r < R; ++r) {
         for (int c = 0; c < C; ++c) {
-            int8_t mat_val = matrix[c + C * r];
-            int8_t gold_val = golden_matrix[c + C * r];
+            int64_t mat_val = matrix[c + C * r];
+            int64_t gold_val = golden_matrix[c + C * r];
             
             if (mat_val != gold_val) {
                 printf("Error: o[%d][%d] = %d, instead of %d\n", 
@@ -65,7 +62,8 @@ int verify_matrix(int8_t *matrix, int8_t *golden_matrix, int64_t R, int64_t C, d
 }
 
 
-void print_matrix(int8_t const *matrix, uint64_t num_rows,
+
+void print_matrix(float const *matrix, uint64_t num_rows,
                   uint64_t num_columns) {
   printf("0x%8X\n", (uint64_t)matrix);
   for (uint64_t i = 0; i < num_rows; ++i) {
@@ -76,13 +74,13 @@ void print_matrix(int8_t const *matrix, uint64_t num_rows,
   }
 }
 
-// This one works as it omits %f. %f does not work as the format specifier apparently is not properly implemented.
-void print_matrix_simple(int8_t const *matrix, uint64_t num_rows, uint64_t num_columns) {
+// Additional printing function as sometimes the format specifier %f did not work.
+void print_matrix_nof(uint64_t const *matrix, uint64_t num_rows, uint64_t num_columns) {
     for (uint64_t i = 0; i < num_rows; ++i) {
         for (uint64_t j = 0; j < num_columns; ++j) {
             // Convert double to integer parts
-            int32_t integer_part = (int32_t)matrix[i * num_columns + j];
-            int32_t fractional_part = (int32_t)((matrix[i * num_columns + j] - integer_part) * 1000000);
+            int64_t integer_part = (int64_t)matrix[i * num_columns + j];
+            int64_t fractional_part = (int64_t)((matrix[i * num_columns + j] - integer_part) * 1000000);
             if (fractional_part < 0) fractional_part = -fractional_part;
             
             // Print as integer and fractional parts
@@ -96,7 +94,7 @@ int main() {
   printf("\n");
   printf("=============\n");
   printf("=  FCONV3D  =\n");
-  printf("=  NOW 8i   =\n");
+  printf("=  NOW 64i  =\n");
   printf("=============\n");
   printf("\n");
   printf("\n");
@@ -117,7 +115,7 @@ int main() {
   // Performance metrics
   int64_t runtime = get_timer();
   float performance = 2.0f * CH * F * F * M * N / runtime;
-  float utilization = 100 * performance / (16.0f * NR_LANES);
+  float utilization = 100 * performance / (2.0f * NR_LANES);
 
   printf("The execution took %d cycles.\n", runtime);
   printf("The performance is %f DPFLOP/cycle (%f%% utilization).\n",

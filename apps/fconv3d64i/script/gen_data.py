@@ -55,7 +55,6 @@ def convolve2D(kernel, image, padding):
 
     return output
 
-
 def emit(name, array, alignment='4'):
 	print(".global %s" % name)
 	print(".balign " + alignment)
@@ -80,8 +79,8 @@ else:
 	matrix_width = 64
 	F = 3
 
-# 32-bit data
-dtype = np.float32
+# 64-bit data
+dtype = np.int64
 
 
 # Input image. Take a square image
@@ -98,12 +97,13 @@ assert(N % 4 == 0), "Output image dimension must be divisible by 4, pad the inpu
 image = list()
 # Generate a random float64 input padded image
 for ch in range(CH):
-        image += [np.random.rand(M_pad, N_pad).astype(dtype)]
+        image += [np.random.randint(-128, 128, size=(M_pad, N_pad), dtype=dtype)]
 
 gen_filter = list()
 # Generate a random float64 filter
 for ch in range(CH):
-        gen_filter += [np.random.rand(F, F).astype(dtype)]
+        gen_filter += [np.random.randint(-128, 128, size=(F, F), dtype=dtype)]
+
 
 # Create the empty o matrix
 empty_o = np.zeros((M, N)).astype(dtype)

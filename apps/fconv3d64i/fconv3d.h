@@ -23,25 +23,21 @@
 #include <stdio.h>
 
 
-void fconv3d_CHx7x7(float *o, float *i, float *f, int64_t M, int64_t N,
+void fconv3d_CHx7x7(int64_t *o, int64_t *i, int64_t *f, int64_t M, int64_t N,
                     int64_t C, int64_t F);
 
-void fconv3d_CHx7x7_block(float *o, float *i, float *f, int64_t M, int64_t N,
+void fconv3d_CHx7x7_block(int64_t *o, int64_t *i, int64_t *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F);
 
-void fconv3d_CHx7x7_warm(float *o, float *i, float *f, int64_t M, int64_t N,
+void fconv3d_CHx7x7_warm(int64_t *o, int64_t *i, int64_t *f, int64_t M, int64_t N,
                     int64_t C, int64_t F);
 
-void fconv3d_warm(float *o, float *i, float *f, int64_t M, int64_t N,
+void fconv3d_warm(int64_t *o, int64_t *i, int64_t *f, int64_t M, int64_t N,
                           int64_t n_, int64_t C, int64_t F);
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 // Threshold for FP numbers comparison during the final check
-// #define THRESHOLD 0.000000000001
-//Marius: more due to float problems
-#define THRESHOLD 0.1
-
-// #define THRESHOLD 0
+#define THRESHOLD 0.000000000001
 
 #endif

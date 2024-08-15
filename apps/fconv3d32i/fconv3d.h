@@ -22,7 +22,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-//Marius: also changed double to float here
 
 
 void fconv3d_CHx7x7(int32_t *o, int32_t *i, int32_t *f, int64_t M, int64_t N,
@@ -40,10 +39,6 @@ void fconv3d_warm(int32_t *o, int32_t *i, int32_t *f, int64_t M, int64_t N,
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 // Threshold for FP numbers comparison during the final check
-// #define THRESHOLD 0.000000000001
-//Marius: more due to float problems
 #define THRESHOLD 0.1
-
-// #define THRESHOLD 0
 
 #endif
